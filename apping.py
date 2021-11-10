@@ -1,5 +1,7 @@
+import jsonschema
 import numpy as np
-from flask import Flask, request
+from flask import Flask, request, jsonify
+from jsonschema import validate
 
 
 def sigmoid(x):
@@ -31,32 +33,54 @@ sred_v = 62.8
 
 app = Flask(__name__)
 
+men = {
+    "Пол": "мужчина"
+}
+women = {
+    "Пол": "женщина"
+}
 
-@app.route('/form-example', methods=['GET', 'POST'])
-def form_example():
-    if request.method == 'POST':
-        rost = request.form.get('rost')
-        ves = request.form.get('ves')
+schema = {
+    "type": "object",
+    "properties": {
+        "rost": {"type": "number", "minimum": 100, "maximum": 220},
+        "ves": {"type": "number", "minimum": 30, "maximum": 150}
+    },
+}
 
-        x = np.array([int(rost)])
-        y = np.array([int(ves)])
 
-        x = x - sred_r
-        y = y - sred_v
+@app.route("/count", methods=["POST"])
+def inf():
+    global error
+    data = request.get_json()
 
-        rez = predict(x, y)
-        if rez[0] > rez[1]:
-            return '''<h1>Это мужчина</h1>'''
+    try:
+        validate(instance=data, schema=schema)
+    except jsonschema.ValidationError as er:
+        if er.validator == "type":
+            error = {"Ошибка": "неверный тип данных"}
+        elif er.validator == "minimum":
+            error = {"Ошибка": "{} меньше {}".format(er.instance, er.validator_value)}
         else:
-            return '''<h1>Это девушка</h1>'''
+            error = {"Ошибка": "{} больше {}".format(er.instance, er.validator_value)}
+        return jsonify(error)
+    rost = data["rost"]
+    ves = data["ves"]
 
-    return '''
-           <form method="POST">
-               <div><label>Рост: <input type="number" name="rost" min="100" max="220"></label></div>
-               <div><label>Вес: <input type="number" name="ves" min="30" max="150"></label></div>
-               <input type="submit" value="Submit">
-           </form>'''
+    rost = rost - sred_r
+    ves = ves - sred_v
+
+    rez = predict(rost, ves)
+    if rez[0] > rez[1]:
+        return jsonify(men)
+    else:
+        return jsonify(women)
 
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+@app.errorhandler(500)
+def internal_server_error(e):
+    error = {"Ошибка": "сбой в программе"}
+    return error
+
+
+app.run()
